@@ -1,6 +1,8 @@
 import argparse
+import random
 from pathlib import Path
 
+import symusic
 import torch
 from miditok import PerTok, TokenizerConfig
 from peft import PeftModel
@@ -32,6 +34,7 @@ def build_tokenizer(tokenizer_name: str):
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate MIDI from a LoRA-adapted midi-gpt2.")
     parser.add_argument("--adapter-dir", required=True, help="Path to adapter-best or adapter-last.")
+    parser.add_argument("--prompt-midi", default=None, help="Optional MIDI file to seed generation.")
     parser.add_argument("--output", default="lora_output.mid")
     parser.add_argument("--model-name", default="xingjianll/midi-gpt2")
     parser.add_argument("--tokenizer-name", default="xingjianll/midi-tokenizer")
@@ -39,13 +42,16 @@ def parse_args():
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--top-k", type=int, default=50)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (omit for random).")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    torch.manual_seed(args.seed)
+    seed = args.seed if args.seed is not None else random.randrange(1 << 32)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     device = (
         torch.device("cuda")
@@ -61,9 +67,29 @@ def main():
     model.to(device)
     model.eval()
 
-    input_ids = torch.tensor([[tokenizer["BOS_None"]]], dtype=torch.long, device=device)
+    if args.prompt_midi:
+        prompt_path = Path(args.prompt_midi).expanduser()
+        if not prompt_path.exists():
+            raise FileNotFoundError(f"Prompt MIDI not found: {prompt_path}")
+        score = symusic.Score.from_file(str(prompt_path))
+        prompt_ids = tokenizer.encode(score)[0]
+        if not prompt_ids:
+            prompt_ids = [tokenizer["BOS_None"]]
+    else:
+        prompt_ids = [tokenizer["BOS_None"]]
+
+    max_positions = getattr(model.config, "n_positions", None) or getattr(
+        model.config, "max_position_embeddings", None
+    )
+    if max_positions is not None and len(prompt_ids) > max_positions:
+        prompt_ids = prompt_ids[-max_positions:]
+    input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=device)
     gen_config = GenerationConfig.from_pretrained(args.model_name)
-    gen_config.max_new_tokens = args.max_new_tokens
+    if max_positions is not None:
+        remaining = max_positions - input_ids.shape[1]
+        gen_config.max_new_tokens = max(0, min(args.max_new_tokens, remaining))
+    else:
+        gen_config.max_new_tokens = args.max_new_tokens
     gen_config.temperature = args.temperature
     gen_config.top_p = args.top_p
     gen_config.top_k = args.top_k
