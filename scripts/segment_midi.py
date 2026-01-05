@@ -124,19 +124,50 @@ def segment_midi(input_file: Path, output_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Segment a MIDI file by markers into separate files.")
-    parser.add_argument("input_file", help="Path to the input MIDI file")
+    parser = argparse.ArgumentParser(description="Segment MIDI file(s) by markers into separate files.")
+    parser.add_argument("input", help="Path to: a MIDI file, comma-separated list of files, or a folder containing MIDI files")
     parser.add_argument("--output-dir", default="segments", help="Output directory for segments (default: segments)")
+    parser.add_argument("--separate-folders", action="store_true", help="Create separate subfolder for each input file")
     
     args = parser.parse_args()
     
-    input_file = Path(args.input_file)
-    if not input_file.exists():
-        print(f"Error: File not found: {input_file}")
+    # Determine input type and collect files
+    midi_files = []
+    input_path = Path(args.input)
+    
+    if "," in args.input:
+        # Comma-separated list of files
+        file_paths = [p.strip() for p in args.input.split(",")]
+        for file_path in file_paths:
+            path = Path(file_path)
+            if path.exists() and path.is_file():
+                midi_files.append(path)
+            else:
+                print(f"Warning: File not found: {path}")
+    elif input_path.is_dir():
+        # Directory: find all MIDI files
+        midi_files = list(input_path.glob("**/*.mid")) + list(input_path.glob("**/*.midi"))
+        if not midi_files:
+            print(f"No MIDI files found in {input_path}")
+            return
+        print(f"Found {len(midi_files)} MIDI file(s) in {input_path}\n")
+    elif input_path.is_file():
+        # Single file
+        midi_files = [input_path]
+    else:
+        print(f"Error: Invalid input: {args.input}")
         return
     
-    output_dir = Path(args.output_dir)
-    segment_midi(input_file, output_dir)
+    # Process each file
+    for midi_file in midi_files:
+        if args.separate_folders:
+            # Create a subfolder for this file's segments
+            output_dir = Path(args.output_dir) / midi_file.stem
+        else:
+            output_dir = Path(args.output_dir)
+        
+        segment_midi(midi_file, output_dir)
+        print()  # Empty line between files
 
 
 if __name__ == "__main__":
