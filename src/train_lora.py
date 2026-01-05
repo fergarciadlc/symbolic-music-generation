@@ -82,13 +82,14 @@ def parse_args():
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.05)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility (optional)")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    set_seed(args.seed)
+    if args.seed is not None:
+        set_seed(args.seed)
 
     data_dir = Path(args.data_dir).expanduser()
     if not data_dir.exists():
@@ -146,6 +147,14 @@ def main():
         else torch.device("cpu")
     )
 
+    print(f"Training LoRA adapter for model {args.model_name} on device {device}")
+    print(f"  Train files: {len(train_dataset)}")
+    print(f"  Val files: {len(val_dataset)}")
+    print("Parameters:")
+    for k, v in vars(args).items():
+        print(f"  {k}: {v}")
+    print("=" * 40)
+
     model = AutoModelForCausalLM.from_pretrained(args.model_name)
     if model.config.pad_token_id is None:
         model.config.pad_token_id = tokenizer.pad_token_id
@@ -161,6 +170,7 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
     model.to(device)
+    print("=" * 40)
 
     optimizer = torch.optim.AdamW(
         (p for p in model.parameters() if p.requires_grad),
