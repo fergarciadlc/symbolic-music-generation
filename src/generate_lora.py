@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--tokenizer-name", default="xingjianll/midi-tokenizer")
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--temperature", type=float, default=1.0)
-    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--top-p", type=float, default=1.0)
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--seed", type=int, default=None, help="Random seed (omit for random).")
     return parser.parse_args()
@@ -93,6 +93,12 @@ def main():
     gen_config.temperature = args.temperature
     gen_config.top_p = args.top_p
     gen_config.top_k = args.top_k
+
+    print(f"Generating with LoRA adapter from: {args.adapter_dir} on device: {device}")
+    print("Parameters:")
+    for k, v in vars(args).items():
+        print(f"  {k}: {v}")
+    print("=" * 40)
 
     with torch.no_grad():
         output = model.generate(input_ids=input_ids, generation_config=gen_config)
